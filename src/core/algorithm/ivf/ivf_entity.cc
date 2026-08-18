@@ -615,6 +615,7 @@ int IVFEntity::search(size_t inverted_list_id, const void *query,
   const size_t batch_size = kBatchBlocks;
   const size_t block_size = header_.block_size;
   const auto norm_val = this->inverted_list_normalize_value(inverted_list_id);
+  float bound = heap->threshold();
   for (size_t i = 0; i < list_meta->block_count; i += batch_size) {
     //! Read vecs
     const size_t off = list_meta->offset + i * block_size;
@@ -662,8 +663,15 @@ int IVFEntity::search(size_t inverted_list_id, const void *query,
       uint32_t id_off = list_meta->id_offset + (i + b) * block_vecs;
       for (size_t k = 0; k < vecs_count; ++k) {
         if (keeps & (1ULL << k)) {
+          const float score = distances[k] * norm_val;
+          if (score > bound) {
+            continue;
+          }
           if (block_keys[k] != kInvalidKey) {
-            heap->emplace(block_keys[k], distances[k] * norm_val, id_off + k);
+            heap->emplace(block_keys[k], score, id_off + k);
+            if (heap->full()) {
+              bound = heap->front().score();
+            }
           }
         }
       }
@@ -689,6 +697,7 @@ int IVFEntity::search(size_t inverted_list_id, const void *query,
   const size_t batch_size = kBatchBlocks;
   const size_t block_size = header_.block_size;
   const auto norm_val = this->inverted_list_normalize_value(inverted_list_id);
+  float bound = heap->threshold();
   for (size_t i = 0; i < list_meta->block_count; i += batch_size) {
     //! Read vecs
     const size_t off = list_meta->offset + i * block_size;
@@ -718,9 +727,16 @@ int IVFEntity::search(size_t inverted_list_id, const void *query,
       calculator_->query_features_distance(query, block_data, vecs_count,
                                            distances.data());
       for (size_t k = 0; k < vecs_count; ++k) {
+        const float score = distances[k] * norm_val;
+        if (score > bound) {
+          continue;
+        }
         if (block_keys[k] != kInvalidKey) {
           uint32_t id = list_meta->id_offset + (i + b) * block_vecs + k;
-          heap->emplace(block_keys[k], distances[k] * norm_val, id);
+          heap->emplace(block_keys[k], score, id);
+          if (heap->full()) {
+            bound = heap->front().score();
+          }
         }
       }
       *(context_stats->mutable_dist_calced_count()) += vecs_count;
@@ -730,7 +746,6 @@ int IVFEntity::search(size_t inverted_list_id, const void *query,
   *scan_count = list_meta->vector_count;
   return 0;
 }
-
 //! search all inverted list with filter
 int IVFEntity::search(const void *query, const IndexFilter &filter,
                       IndexDocumentHeap *heap,

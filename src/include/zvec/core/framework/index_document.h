@@ -28,6 +28,12 @@ class IndexSparseDocument {
   //! Constructor
   IndexSparseDocument() = default;
 
+  //! Keep moves explicit so IndexDocument's move constructor remains valid.
+  IndexSparseDocument(IndexSparseDocument &&rhs) = default;
+  IndexSparseDocument &operator=(IndexSparseDocument &&rhs) = default;
+  IndexSparseDocument(const IndexSparseDocument &rhs) = default;
+  IndexSparseDocument &operator=(const IndexSparseDocument &rhs) = default;
+
   //! Retrieve mutable sparse count
   uint32_t *mutable_sparse_count(void) {
     return &sparse_count_;
@@ -133,12 +139,38 @@ class IndexDocument {
         score_(rhs.score_),
         index_(rhs.index_),
         vector_(rhs.vector_),
-        vector_string_(std::move(rhs.vector_string_)),
+        vector_string_(rhs.vector_string_),
         sparse_doc_{rhs.sparse_doc_} {
     if (rhs.has_vec_mem_block_) {
       vec_mem_block_ = rhs.vec_mem_block_;
       has_vec_mem_block_ = true;
     }
+  }
+
+  //! Move constructor.
+  IndexDocument(IndexDocument &&rhs)
+      : key_(rhs.key_),
+        score_(rhs.score_),
+        index_(rhs.index_),
+        vector_(rhs.vector_),
+        vector_string_(std::move(rhs.vector_string_)),
+        has_vec_mem_block_(rhs.has_vec_mem_block_),
+        vec_mem_block_(std::move(rhs.vec_mem_block_)),
+        sparse_doc_(std::move(rhs.sparse_doc_)) {}
+
+  //! Move assignment
+  IndexDocument &operator=(IndexDocument &&rhs) {
+    if (this != &rhs) {
+      key_ = rhs.key_;
+      score_ = rhs.score_;
+      index_ = rhs.index_;
+      vector_ = rhs.vector_;
+      vector_string_ = std::move(rhs.vector_string_);
+      has_vec_mem_block_ = rhs.has_vec_mem_block_;
+      vec_mem_block_ = std::move(rhs.vec_mem_block_);
+      sparse_doc_ = std::move(rhs.sparse_doc_);
+    }
+    return *this;
   }
 
   //! Assignment
@@ -274,6 +306,10 @@ class IndexDocumentHeap : public ailego::Heap<IndexDocument> {
   //! Insert a document into the heap
   void emplace(uint64_t key, float score) {
     if (score <= threshold_) {
+      // Fast reject without constructing IndexDocument.
+      if (this->full() && !(score < front().score())) {
+        return;
+      }
       ailego::Heap<IndexDocument>::emplace(key, score);
     }
   }
@@ -281,6 +317,9 @@ class IndexDocumentHeap : public ailego::Heap<IndexDocument> {
   //! Insert a document into the heap
   void emplace(uint64_t key, float score, uint32_t index) {
     if (score <= threshold_) {
+      if (this->full() && !(score < front().score())) {
+        return;
+      }
       ailego::Heap<IndexDocument>::emplace(key, score, index);
     }
   }
